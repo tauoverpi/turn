@@ -55,7 +55,7 @@ pub fn select(self: *Utility, me: Npc, them: []const Npc) Motive.Action {
 
     for (them) |foe| {
         while (it.next()) |action| {
-            const total = action.eval(me, foe);
+            const total = action.eval(me, foe, max);
 
             if (total > max) {
                 act = action.motives[0].action;
@@ -110,14 +110,13 @@ pub const Iterator = struct {
     pub const Action = struct {
         motives: []const Motive,
 
-        pub fn eval(self: Action, me: Npc, foe: Npc) f32 {
+        pub fn eval(self: Action, me: Npc, foe: Npc, threshold: f32) f32 {
             const modification: f32 = 1 - (1 / @intToFloat(f32, self.motives.len));
 
             var total: f32 = 1;
-            var min: f32 = 0;
 
             for (self.motives) |motive| {
-                if (total < min) continue;
+                if (total < threshold) return 0;
 
                 const con = motive.response.y(switch (motive.resource.target) {
                     .me => me.signal(motive.resource.type),
