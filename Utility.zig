@@ -1,5 +1,4 @@
 const std = @import("std");
-const meta = @import("meta.zig");
 const math = std.math;
 const testing = std.testing;
 
@@ -52,28 +51,14 @@ pub fn select(self: *Utility, me: Npc, them: []const Npc) Motive.Action {
     var it = self.iterate();
 
     var max: f32 = 0;
-    var min: f32 = 0;
     var act: ?Motive.Action = null;
 
     for (them) |foe| {
-        loop: while (it.next()) |action| {
-            const modification: f32 = 1 - (1 / @intToFloat(f32, action.len));
-
-            var total: f32 = 1;
-
-            for (action) |motive| {
-                if (total < min) continue :loop;
-
-                const con = motive.response.y(switch (motive.resource.target) {
-                    .me => me.signal(motive.resource.type),
-                    .them => foe.signal(motive.resource.type),
-                });
-
-                total *= math.clamp(con + (1 - con) * con * modification, 0, 1);
-            }
+        while (it.next()) |action| {
+            const total = action.eval(me, foe);
 
             if (total > max) {
-                act = action[0].action;
+                act = action.motives[0].action;
                 max = total;
             }
         }
@@ -97,32 +82,6 @@ pub fn iterate(self: *Utility) Iterator {
     return .{ .items = self.motive.items };
 }
 
-fn testSetup(self: *Utility, gpa: Allocator) !void {
-    try self.append(gpa, .{
-        .resource = .{ .target = .me, .type = .magic },
-        .response = .{ .curve = undefined, .type = .constant },
-        .action = .{ .name = .slash, .target = 1 },
-    });
-
-    try self.append(gpa, .{
-        .resource = .{ .target = .me, .type = .magic },
-        .response = .{ .curve = undefined, .type = .constant },
-        .action = .{ .name = .slash, .target = 0 },
-    });
-
-    try self.append(gpa, .{
-        .resource = .{ .target = .them, .type = .health },
-        .response = .{ .curve = undefined, .type = .constant },
-        .action = .{ .name = .slash, .target = 0, .type = .expensive },
-    });
-
-    try self.append(gpa, .{
-        .resource = .{ .target = .me, .type = .crit },
-        .response = .{ .curve = undefined, .type = .constant },
-        .action = .{ .name = .slash, .target = 0, .type = .eliminator },
-    });
-}
-
 test "iterate" {
     var u: Utility = .{};
     defer u.deinit(testing.allocator);
@@ -131,7 +90,7 @@ test "iterate" {
 
     var it = u.iterate();
 
-    const result = it.next().?;
+    const result = it.next().?.motives;
     try testing.expectEqual(@as(usize, 3), result.len);
 
     const Type = Motive.Action.Type;
@@ -139,7 +98,7 @@ test "iterate" {
     try testing.expectEqual(Type.normal, result[1].action.type);
     try testing.expectEqual(Type.expensive, result[2].action.type);
 
-    try testing.expectEqual(@as(usize, 1), it.next().?.len);
+    try testing.expectEqual(@as(usize, 1), it.next().?.motives.len);
 
     try testing.expect(it.next() == null);
 }
@@ -148,7 +107,31 @@ pub const Iterator = struct {
     items: []const Motive,
     index: usize = 0,
 
-    pub fn next(self: *Iterator) ?[]const Motive {
+    pub const Action = struct {
+        motives: []const Motive,
+
+        pub fn eval(self: Action, me: Npc, foe: Npc) f32 {
+            const modification: f32 = 1 - (1 / @intToFloat(f32, self.motives.len));
+
+            var total: f32 = 1;
+            var min: f32 = 0;
+
+            for (self.motives) |motive| {
+                if (total < min) continue;
+
+                const con = motive.response.y(switch (motive.resource.target) {
+                    .me => me.signal(motive.resource.type),
+                    .them => foe.signal(motive.resource.type),
+                });
+
+                total *= math.clamp(con + (1 - con) * con * modification, 0, 1);
+            }
+
+            return total;
+        }
+    };
+
+    pub fn next(self: *Iterator) ?Action {
         const start = self.index;
         if (start >= self.items.len) return null;
 
@@ -163,7 +146,7 @@ pub const Iterator = struct {
             self.index += 1;
         }
 
-        return self.items[start..self.index];
+        return .{ .motives = self.items[start..self.index] };
     }
 };
 
@@ -229,3 +212,29 @@ pub const Motive = struct {
 
     pub const Response = @import("Response.zig");
 };
+
+fn testSetup(self: *Utility, gpa: Allocator) !void {
+    try self.append(gpa, .{
+        .resource = .{ .target = .me, .type = .magic },
+        .response = .{ .curve = undefined, .type = .constant },
+        .action = .{ .name = .slash, .target = 1 },
+    });
+
+    try self.append(gpa, .{
+        .resource = .{ .target = .me, .type = .magic },
+        .response = .{ .curve = undefined, .type = .constant },
+        .action = .{ .name = .slash, .target = 0 },
+    });
+
+    try self.append(gpa, .{
+        .resource = .{ .target = .them, .type = .health },
+        .response = .{ .curve = undefined, .type = .constant },
+        .action = .{ .name = .slash, .target = 0, .type = .expensive },
+    });
+
+    try self.append(gpa, .{
+        .resource = .{ .target = .me, .type = .crit },
+        .response = .{ .curve = undefined, .type = .constant },
+        .action = .{ .name = .slash, .target = 0, .type = .eliminator },
+    });
+}

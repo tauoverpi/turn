@@ -1,6 +1,5 @@
 const std = @import("std");
 const game = @import("game.zig");
-const meta = @import("meta.zig");
 const assert = std.debug.assert;
 
 const Npc = @This();
